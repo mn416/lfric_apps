@@ -40,42 +40,43 @@ def trans(psyir):
                              omp_schedule="dynamic")
 
     for routine in psyir.walk(Routine):
-        if routine.name == "ukca_chemistry_ctl_full":
-            for loop in routine.walk(Loop):
-                try:
-                    # Parallelise the "DO l = 1, dim_ntp" loops
-                    if match_loop(loop, "l", "dim_ntp"):
-                        omp_trans.apply(loop)
+        if routine.name != "ukca_chemistry_ctl_full":
+            continue
+        for loop in routine.walk(Loop):
+            try:
+                # Parallelise the "DO l = 1, dim_ntp" loops
+                if match_loop(loop, "l", "dim_ntp"):
+                    omp_trans.apply(loop)
 
-                    # Parallelise the "DO jspf = 1, jpcspf" loop
-                    if match_loop(loop, "jspf", "jpcspf"):
-                        omp_trans.apply(loop, force=True)
+                # Parallelise the "DO jspf = 1, jpcspf" loop
+                if match_loop(loop, "jspf", "jpcspf"):
+                    omp_trans.apply(loop, force=True)
 
-                    # Parallelise the 3D chunking loop
-                    if match_loop(loop, "zi", "model_levels"):
-                        # Find all "chunk_" arrays (to be marked as private)
-                        privates = set()
-                        for sym in loop.get_all_accessed_symbols():
-                            if (sym.name.startswith("chunk_") and
-                                    isinstance(sym, DataSymbol) and
-                                    isinstance(sym.datatype, ArrayType)):
-                                privates.add(sym)
+                # Parallelise the 3D chunking loop
+                if match_loop(loop, "zi", "model_levels"):
+                    # Find all "chunk_" arrays (to be marked as private)
+                    privates = set()
+                    for sym in loop.get_all_accessed_symbols():
+                        if (sym.name.startswith("chunk_") and
+                                isinstance(sym, DataSymbol) and
+                                isinstance(sym.datatype, ArrayType)):
+                            privates.add(sym)
 
-                        # Apply the transformation
-                        parent, position = loop.parent, loop.position
-                        omp_trans.apply(loop, force=True, collapse=3)
+                    # Apply the transformation
+                    parent, position = loop.parent, loop.position
+                    omp_trans.apply(loop, force=True, collapse=3)
 
-                        # Mark explicitly private variables
-                        if psy_version < (3, 3, 0):
-                            loop.explicitly_private_symbols.update(privates)
-                        else:
-                            directive = parent.children[position]
-                            directive.explicitly_private_symbols.update(
-                                privates)
+                    # Mark explicitly private variables
+                    if psy_version < (3, 3, 0):
+                        loop.explicitly_private_symbols.update(privates)
+                    else:
+                        directive = parent.children[position]
+                        directive.explicitly_private_symbols.update(
+                            privates)
 
-                except TransformationError as err:
-                    err_msg = ("ukca_chemistry_ctl_full_mod.py: Error: "
-                               "could not apply OMP transformation "
-                               f"to loop '{loop.variable.name}': "
-                               f"{err.message_text}")
-                    raise TransformationError(err_msg) from err
+            except TransformationError as err:
+                err_msg = ("ukca_chemistry_ctl_full_mod.py: Error: "
+                           "could not apply OMP transformation "
+                           f"to loop '{loop.variable.name}': "
+                           f"{err.message_text}")
+                raise TransformationError(err_msg) from err
